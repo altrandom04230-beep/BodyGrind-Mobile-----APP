@@ -1,0 +1,33 @@
+<resources>
+    <string name="app_name">BodyGrind</string>
+    <string name="title_workout_programs">Workout Programs</string>
+    <string name="build_custom_plan">Build Custom Plan</string>
+    <string name="ai_fitness_coach">AI Fitness Coach</string>
+    <string name="daily_workout_reminders">Daily Workout Reminders</string>
+    <string name="reminder_time_label">Reminder Time</string>
+    <string name="send_test_notification">Send Test Notification</string>
+    <string name="edit_fitness_profile">Edit Fitness Profile</string>
+    <string name="preferences_title">Preferences</string>
+    <string name="look_and_home_settings">Look &amp; Home Settings</string>
+    <string name="profile_privacy">Profile Privacy</string>
+    <string name="privacy_private">Private</string>
+    <string name="privacy_public">Public</string>
+    <string name="theme_mode">App Theme Mode</string>
+    <string name="measurement_units">Measurement Units</string>
+    <string name="unit_metric">kg / cm</string>
+    <string name="unit_imperial">lb / ft</string>
+    <string name="gym_checkin_title">Gym Check-in Pass</string>
+    <string name="gym_checkin_subtitle">Show at gym reception for member entry</string>
+    <string name="coaches_chip">Coaches (Cobie &amp; Jun)</string>
+    <string name="offtopic_refusal">I am your dedicated AI Fitness Coach, so I can only answer questions about workouts, exercises, training form, and fitness nutrition/hydration. For other topics or medical conditions, please consult a professional.</string>
+    <string name="body_pose_bmi_title">Body Pose &amp; BMI</string>
+    <string name="body_pose_bmi_subtitle">Real-Time AI Vision &amp; Analytics</string>
+    <string name="ai_calorie_tracker_title">AI Calorie Tracker</string>
+    <string name="ai_calorie_tracker_subtitle">Snap a photo or describe meal to estimate calories &amp; macros</string>
+    <string name="muscle_anatomy_title">3D Muscle Anatomy</string>
+    <string name="muscle_anatomy_badge">REAL 3D</string>
+    <string name="muscle_anatomy_male_subtitle">Male muscular system</string>
+    <string name="muscle_anatomy_female_subtitle">Female muscular system</string>
+    <string name="muscle_anatomy_drag_hint">Drag horizontally to rotate 360°</string>
+    <string name="muscle_anatomy_target_muscles">Target muscles</string>
+</resources>

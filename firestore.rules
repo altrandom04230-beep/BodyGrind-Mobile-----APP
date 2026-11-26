@@ -1,0 +1,440 @@
+// BodyGrind Firestore rules v12 (Nov 24, 2026).
+// v11 + trainerAvailability read/write rule so active trainers (and admins) can save availability
+// and linked members can read it. Nothing else changed.
+// To undo: paste the saved v11 text back into Firebase Console > Firestore Database > Rules, then Publish.
+//
+// v11 (Nov 23, 2026) = v10 + one rule: a linked, active trainer can cancel a workout plan they assigned (soft cancel:
+// the plan stays, marked "cancelled" with a reason). Nothing else changed.
+//
+// v10 (Nov 18, 2026) = v9 + one admin-only rule so the admin portal's Workout Programs report can read every member's
+// assigned plans in one query (collection group). Nothing else changed.
+// v9 = v8 + the BodyGrind app's coaching data: trainer invites, member-trainer links,
+// shared progress, assigned plans and chats.
+// To undo: paste the saved v8 text back into Firebase Console > Firestore Database > Rules, then Publish.
+
+rules_version = '2';
+
+service cloud.firestore {
+  match /databases/{database}/documents {
+    function signedIn() {
+      return request.auth != null;
+    }
+
+    function isOwner(userId) {
+      return signedIn() && request.auth.uid == userId;
+    }
+
+    function isAdmin() {
+      return signedIn()
+        && get(/databases/$(database)/documents/users/$(request.auth.uid)).data.accountType == 'ADMIN';
+    }
+
+    // Two-digit text for a month or day, e.g. 7 -> "07".
+    function pad2(n) {
+      return n < 10 ? '0' + string(n) : string(n);
+    }
+
+    // Today's date in Manila (UTC+8, no daylight saving) as YYYYMMDD, from the server clock.
+    function manilaDayKey() {
+      let t = request.time + duration.value(8, 'h');
+      return string(t.year()) + pad2(t.month()) + pad2(t.day());
+    }
+
+    // A member or trainer checking themselves in with the check-in display's QR code.
+    function isValidQrCheckIn(logId) {
+      let data = request.resource.data;
+      let me = get(/databases/$(database)/documents/users/$(request.auth.uid)).data;
+      let session = get(/databases/$(database)/documents/attendanceSessions/current).data;
+      let today = manilaDayKey();
+      return data.keys().hasOnly(['userId', 'userType', 'userName', 'checkInTime', 'method', 'status', 'dayKey', 'qrToken'])
+        && data.keys().hasAll(['userId', 'userType', 'userName', 'checkInTime', 'method', 'status', 'dayKey', 'qrToken'])
+        // One check-in per person per day: the ID is today's Manila date + their own ID.
+        && logId == today + '_' + request.auth.uid
+        && data.dayKey == today
+        && data.userId == request.auth.uid
+        // Role and name must match their real record.
+        && data.userType == me.accountType
+        && data.userName == me.get('name', '')
+        // Only active members with a paid membership that hasn't ended, and active trainers, can check in by QR.
+        // Everyone else needs the front desk.
+        && ((me.accountType == 'MEMBER'
+              && me.get('status', '') == 'active'
+              && me.get('membershipEndsAt', null) is timestamp
+              && request.time < me.membershipEndsAt)
+            || (me.accountType == 'TRAINER' && me.get('status', '') == 'active'))
+        // Server time only; nobody can fake the time.
+        && data.checkInTime == request.time
+        && data.method == 'QR'
+        && data.status == 'present'
+        && data.qrToken is string
+        // The display must be running today.
+        && session.status == 'active'
+        && session.dayKey == today
+        // The scanned code must be the current or previous code, each valid for 120 seconds.
+        && ((data.qrToken == session.code
+              && request.time < session.createdAt + duration.value(120, 's'))
+            || (data.qrToken == session.previousCode
+              && request.time < session.previousCreatedAt + duration.value(120, 's')));
+    }
+
+    // ---------- Coaching helpers (v9) ----------
+
+    // The signed-in person's own record (rules can read it even though members can't read others).
+    function myRecord() {
+      return get(/databases/$(database)/documents/users/$(request.auth.uid)).data;
+    }
+
+    function isActiveTrainer() {
+      return signedIn()
+        && myRecord().get('accountType', '') == 'TRAINER'
+        && myRecord().get('status', '') == 'active';
+    }
+
+    function isActiveMember() {
+      return signedIn()
+        && myRecord().get('accountType', '') == 'MEMBER'
+        && myRecord().get('status', '') == 'active';
+    }
+
+    // A trainer's invite code is fixed: "BG-" + the first 6 characters of their ID, in capitals.
+    function myInviteCode() {
+      return 'BG-' + request.auth.uid[0:6].upper();
+    }
+
+    function linkPath(memberId) {
+      return /databases/$(database)/documents/links/$(memberId);
+    }
+
+    // The signed-in trainer has an ACTIVE link with this member.
+    function isLinkedTrainer(memberId) {
+      return signedIn()
+        && exists(linkPath(memberId))
+        && get(linkPath(memberId)).data.trainerId == request.auth.uid
+        && get(linkPath(memberId)).data.status == 'ACTIVE';
+    }
+
+    // ...and the member agreed to share this kind of data (shareWorkouts, shareStreakXp, shareBodyStats).
+    function trainerMaySee(memberId, shareField) {
+      return isLinkedTrainer(memberId)
+        && get(linkPath(memberId)).data.get(shareField, false) == true;
+    }
+
+    // Chat IDs are "<trainerId>__<memberId>"; only those two people belong to the chat.
+    function isChatPerson(pairId) {
+      return signedIn()
+        && (pairId.split('__')[0] == request.auth.uid || pairId.split('__')[1] == request.auth.uid);
+    }
+
+    // There is an ACTIVE link between the two people in the chat.
+    function chatPairIsLinked(pairId) {
+      let trainerId = pairId.split('__')[0];
+      let memberId = pairId.split('__')[1];
+      return exists(linkPath(memberId))
+        && get(linkPath(memberId)).data.trainerId == trainerId
+        && get(linkPath(memberId)).data.status == 'ACTIVE';
+    }
+
+    // A new or replaced link a member makes with a trainer's invite code.
+    function isValidNewLink(memberId) {
+      let data = request.resource.data;
+      let invite = get(/databases/$(database)/documents/trainerInvites/$(data.inviteCode)).data;
+      let trainer = get(/databases/$(database)/documents/users/$(data.trainerId)).data;
+      return isActiveMember()
+        && data.keys().hasOnly(['memberId', 'trainerId', 'memberName', 'trainerName', 'trainerTitle', 'inviteCode',
+             'status', 'memberStatus', 'requestedBy', 'shareWorkouts', 'shareStreakXp', 'shareBodyStats',
+             'agreedShareWorkouts', 'agreedShareStreakXp', 'agreedShareBodyStats', 'fitnessGoal', 'fitnessLevel',
+             'acceptedAt', 'lastActiveAt', 'createdAt', 'updatedAt'])
+        && data.memberId == memberId
+        && data.trainerId is string
+        && data.trainerId != memberId
+        && data.inviteCode is string
+        // The invite code must be real, active and belong to that trainer, and the trainer must be active.
+        && invite.trainerId == data.trainerId
+        && invite.active == true
+        && trainer.get('accountType', '') == 'TRAINER'
+        && trainer.get('status', '') == 'active'
+        && data.status == 'ACTIVE'
+        && data.memberStatus == 'ACTIVE'
+        && data.requestedBy == 'MEMBER'
+        && data.shareWorkouts is bool
+        && data.shareStreakXp is bool
+        && data.shareBodyStats is bool;
+    }
+
+    // ---------- Collections ----------
+
+    match /users/{userId} {
+      allow read: if isOwner(userId) || isAdmin();
+
+      allow list: if isAdmin();
+
+      // Only the admin creates accounts (Add member / Add trainer). The app cannot sign people up.
+      allow create: if isAdmin();
+
+      // An owner may change only these fields on their own record.
+      // Never accountType, status, email or membershipEndsAt: those stay admin-only.
+      allow update: if isAdmin()
+        || (isOwner(userId)
+            && request.resource.data.diff(resource.data).affectedKeys()
+                 .hasOnly(['name', 'phone', 'lastActiveAt', 'updatedAt', 'fitnessGoal', 'fitnessLevel', 'trainerInviteCode'])
+            && (!('fitnessGoal' in request.resource.data) || request.resource.data.fitnessGoal is string)
+            && (!('fitnessLevel' in request.resource.data) || request.resource.data.fitnessLevel is string)
+            // Only a trainer may save an invite code, and only their own fixed code.
+            && (!request.resource.data.diff(resource.data).affectedKeys().hasAny(['trainerInviteCode'])
+                || (resource.data.get('accountType', '') == 'TRAINER'
+                    && request.resource.data.trainerInviteCode == myInviteCode())));
+
+      allow delete: if isAdmin();
+
+      // Progress a member shares with their linked trainer.
+      // Only the member writes it; the trainer reads it only while linked and only what the member agreed to share.
+      match /sharedSummary/{docId} {
+        allow read: if isAdmin() || isOwner(userId)
+          || (docId == 'workouts' && trainerMaySee(userId, 'shareWorkouts'))
+          || (docId == 'streakXp' && trainerMaySee(userId, 'shareStreakXp'))
+          || (docId == 'bodyStats' && trainerMaySee(userId, 'shareBodyStats'));
+        allow create, update: if isOwner(userId)
+          && docId in ['workouts', 'streakXp', 'bodyStats']
+          && request.resource.data.memberId == userId;
+        allow delete: if isAdmin() || isOwner(userId);
+      }
+
+      match /sharedWorkouts/{sessionId} {
+        allow read: if isAdmin() || isOwner(userId) || trainerMaySee(userId, 'shareWorkouts');
+        allow create, update: if isOwner(userId) && request.resource.data.memberId == userId;
+        allow delete: if isAdmin() || isOwner(userId);
+      }
+
+      match /sharedMeasurements/{measurementId} {
+        allow read: if isAdmin() || isOwner(userId) || trainerMaySee(userId, 'shareBodyStats');
+        allow create, update: if isOwner(userId) && request.resource.data.memberId == userId;
+        allow delete: if isAdmin() || isOwner(userId);
+      }
+
+      // Workout plans a linked trainer assigns to this member.
+      match /assignedPlans/{planId} {
+        allow read: if isAdmin() || isOwner(userId) || isLinkedTrainer(userId);
+
+        allow create: if isLinkedTrainer(userId)
+          && isActiveTrainer()
+          && request.resource.data.keys().hasOnly(['trainerId', 'trainerName', 'memberId', 'planTitle',
+               'planDescription', 'category', 'difficulty', 'estimatedDurationMinutes', 'note',
+               'startDateEpochMs', 'exercises', 'completed', 'createdAt', 'updatedAt'])
+          && request.resource.data.trainerId == request.auth.uid
+          && request.resource.data.memberId == userId
+          && request.resource.data.planTitle is string
+          && request.resource.data.exercises is list
+          && request.resource.data.exercises.size() <= 50
+          && request.resource.data.completed == false;
+
+        // The member can only mark a plan as done.
+        allow update: if (isOwner(userId)
+          && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['completed', 'completedAt', 'updatedAt'])
+          && request.resource.data.completed == true)
+          // v11: the trainer who assigned the plan can cancel it, while still linked and active.
+          // Only a plan that is not done and not already cancelled. Only the cancel fields change.
+          || (isLinkedTrainer(userId)
+            && isActiveTrainer()
+            && resource.data.trainerId == request.auth.uid
+            && resource.data.get('completed', false) == false
+            && resource.data.get('status', '') != 'cancelled'
+            && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['status', 'completed',
+                 'excludeFromBilling', 'cancelledReason', 'cancelledByUid', 'cancelledByName', 'cancelledByRole',
+                 'cancelledAt', 'updatedAt'])
+            && request.resource.data.status == 'cancelled'
+            && request.resource.data.completed == false
+            && request.resource.data.excludeFromBilling == true
+            && request.resource.data.cancelledReason is string
+            && request.resource.data.cancelledReason.size() <= 500
+            && request.resource.data.cancelledByUid == request.auth.uid
+            && request.resource.data.cancelledByName is string
+            && request.resource.data.cancelledByName.size() <= 100
+            && request.resource.data.cancelledByRole == 'trainer'
+            // Server time only.
+            && request.resource.data.cancelledAt == request.time
+            && request.resource.data.updatedAt == request.time);
+
+        allow delete: if isAdmin() || (signedIn() && resource.data.trainerId == request.auth.uid);
+      }
+    }
+
+    match /organization/{document=**} {
+      allow read, write: if isAdmin();
+    }
+
+    // New name for the admin's own notifications.
+    match /adminNotifications/{document=**} {
+      allow read, write: if isAdmin();
+    }
+
+    // QR codes: only the admin can read or write them.
+    // Members never read a code; the check-in rule above looks it up itself.
+    match /attendanceSessions/{sessionId} {
+      allow read, write: if isAdmin();
+    }
+
+    match /attendanceLogs/{logId} {
+      // A person reads only their own check-ins; the admin reads all.
+      allow read: if isAdmin()
+        || (signedIn() && resource.data.userId == request.auth.uid);
+
+      // Admin: manual check-in. Member or trainer: QR check-in from the check-in display.
+      allow create: if isAdmin()
+        || (signedIn() && isValidQrCheckIn(logId));
+
+      // Only the admin can edit or delete a record.
+      allow update, delete: if isAdmin();
+    }
+
+    // Membership payments: only the admin records and views them.
+    // A saved payment can't be edited or deleted. The only allowed change is voiding it once:
+    // marking it "voided" with who, when (server time) and a 5-200 character reason.
+    match /payments/{paymentId} {
+      allow read, create: if isAdmin();
+      allow update: if isAdmin()
+        && resource.data.get('status', 'valid') != 'voided'
+        && request.resource.data.diff(resource.data).affectedKeys()
+             .hasOnly(['status', 'voidedAt', 'voidedBy', 'voidReason'])
+        && request.resource.data.status == 'voided'
+        && request.resource.data.voidedBy == request.auth.uid
+        && request.resource.data.voidedAt == request.time
+        && request.resource.data.voidReason is string
+        && request.resource.data.voidReason.size() >= 5
+        && request.resource.data.voidReason.size() <= 200;
+      allow delete: if false;
+    }
+    // Reminders the portal already sent (e.g. certificates), so none are sent twice. Admin only.
+    match /sentReminders/{documentId} {
+      allow read, write: if isAdmin();
+    }
+
+    // v10: the admin portal reads all assigned plans at once (Workout Programs report). Read only, admin only.
+    match /{path=**}/assignedPlans/{planId} {
+      allow read: if isAdmin();
+    }
+
+    // ---------- Coaching collections (v9) ----------
+
+    // A trainer's invite code. Any signed-in person can look up ONE code they typed (no listing).
+    // Only the active trainer it belongs to can create or change it, and only with their own fixed code.
+    match /trainerInvites/{code} {
+      allow get: if signedIn();
+      allow list: if isAdmin();
+
+      allow create: if isActiveTrainer()
+        && code == myInviteCode()
+        && request.resource.data.keys().hasOnly(['trainerId', 'trainerName', 'trainerTitle', 'specialization',
+             'active', 'createdAt', 'updatedAt'])
+        && request.resource.data.trainerId == request.auth.uid
+        && request.resource.data.trainerName is string
+        && request.resource.data.active is bool;
+
+      allow update: if isActiveTrainer()
+        && resource.data.trainerId == request.auth.uid
+        && request.resource.data.diff(resource.data).affectedKeys()
+             .hasOnly(['trainerName', 'trainerTitle', 'specialization', 'active', 'updatedAt'])
+        && request.resource.data.active is bool;
+
+      allow delete: if isAdmin() || (signedIn() && resource.data.trainerId == request.auth.uid);
+    }
+
+    // Member-trainer link. The document ID is the member's ID (one trainer per member).
+    match /links/{memberId} {
+      allow get: if isAdmin() || isOwner(memberId)
+        || (signedIn() && resource.data.trainerId == request.auth.uid);
+      // A trainer lists only their own links (the app asks for trainerId == their ID).
+      allow list: if isAdmin() || (signedIn() && resource.data.trainerId == request.auth.uid);
+
+      allow create: if isOwner(memberId) && isValidNewLink(memberId);
+
+      allow update: if
+        // Member: change their name, goals and what they share, or re-link with a valid invite code.
+        (isOwner(memberId)
+          && (isValidNewLink(memberId)
+              || (request.resource.data.diff(resource.data).affectedKeys().hasOnly(['status', 'memberName',
+                    'shareWorkouts', 'shareStreakXp', 'shareBodyStats', 'agreedShareWorkouts', 'agreedShareStreakXp',
+                    'agreedShareBodyStats', 'fitnessGoal', 'fitnessLevel', 'acceptedAt', 'lastActiveAt', 'updatedAt'])
+                  && request.resource.data.status == 'ACTIVE')))
+        // Trainer: change only the member's coaching status label.
+        || (signedIn()
+          && resource.data.trainerId == request.auth.uid
+          && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['memberStatus', 'updatedAt'])
+          && request.resource.data.memberStatus is string);
+
+      // Either side can end the link.
+      allow delete: if isAdmin() || isOwner(memberId)
+        || (signedIn() && resource.data.trainerId == request.auth.uid);
+    }
+
+    // Trainer-member chat. ID = "<trainerId>__<memberId>".
+    match /chats/{pairId} {
+      allow get: if isAdmin() || isChatPerson(pairId);
+      allow list: if isAdmin()
+        || (signedIn() && (resource.data.trainerId == request.auth.uid || resource.data.memberId == request.auth.uid));
+
+      allow create: if isChatPerson(pairId)
+        && chatPairIsLinked(pairId)
+        && request.resource.data.keys().hasOnly(['trainerId', 'memberId', 'trainerName', 'memberName', 'lastMessage',
+             'lastSenderId', 'lastMessageAt', 'trainerUnreadCount', 'memberUnreadCount', 'createdAt', 'updatedAt'])
+        && request.resource.data.trainerId == pairId.split('__')[0]
+        && request.resource.data.memberId == pairId.split('__')[1]
+        && request.resource.data.lastSenderId == request.auth.uid;
+
+      allow update: if isChatPerson(pairId)
+        && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['trainerName', 'memberName', 'lastMessage',
+             'lastSenderId', 'lastMessageAt', 'trainerUnreadCount', 'memberUnreadCount', 'updatedAt'])
+        && (request.resource.data.lastSenderId == resource.data.lastSenderId
+            || request.resource.data.lastSenderId == request.auth.uid);
+
+      allow delete: if isAdmin();
+
+      // Messages can be sent only by the two people, while they are linked. Nobody can edit them.
+      match /messages/{messageId} {
+        allow read: if isAdmin() || isChatPerson(pairId);
+
+        allow create: if isChatPerson(pairId)
+          && chatPairIsLinked(pairId)
+          && request.resource.data.keys().hasOnly(['trainerId', 'memberId', 'senderId', 'senderRole', 'senderName',
+               'text', 'createdAt'])
+          && request.resource.data.trainerId == pairId.split('__')[0]
+          && request.resource.data.memberId == pairId.split('__')[1]
+          && request.resource.data.senderId == request.auth.uid
+          && request.resource.data.text is string
+          && request.resource.data.text.size() >= 1
+          && request.resource.data.text.size() <= 1000
+          && request.resource.data.createdAt == request.time;
+
+        allow update: if false;
+        allow delete: if isAdmin();
+      }
+    }
+
+    // v12: Trainer weekly schedule & date overrides. Document ID = trainer's UID.
+    match /trainerAvailability/{trainerId} {
+      allow read: if isAdmin()
+        || isOwner(trainerId)
+        || (signedIn()
+            && exists(linkPath(request.auth.uid))
+            && get(linkPath(request.auth.uid)).data.trainerId == trainerId
+            && get(linkPath(request.auth.uid)).data.status == 'ACTIVE');
+
+      allow create, update: if (isAdmin() || (isActiveTrainer() && isOwner(trainerId)))
+        && request.resource.data.keys().hasOnly([
+             'trainerId', 'trainerName', 'timezone', 'weeklySlots',
+             'dateOverrides', 'updatedByUid', 'updatedByRole', 'updatedAt'
+           ])
+        && request.resource.data.trainerId == trainerId
+        && request.resource.data.trainerName is string
+        && request.resource.data.timezone is string
+        && request.resource.data.weeklySlots is list
+        && request.resource.data.weeklySlots.size() <= 7
+        && request.resource.data.dateOverrides is list
+        && request.resource.data.dateOverrides.size() <= 60
+        && request.resource.data.updatedByUid == request.auth.uid
+        && request.resource.data.updatedByRole in ['trainer', 'admin']
+        && request.resource.data.updatedAt == request.time;
+
+      allow delete: if isAdmin();
+    }
+  }
+}

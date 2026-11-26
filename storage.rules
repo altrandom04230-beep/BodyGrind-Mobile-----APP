@@ -1,0 +1,69 @@
+rules_version = '2';
+
+// BodyGrind Firebase Storage Security Rules
+// ASSUMPTION: Live Cloud Firestore database in project 'bodygrind-gym-app' is '(default)'.
+service firebase.storage {
+  match /b/{bucket}/o {
+    function signedIn() {
+      return request.auth != null;
+    }
+
+    function userDocExists() {
+      return signedIn()
+        && firestore.exists(/databases/(default)/documents/users/$(request.auth.uid));
+    }
+
+    function userDoc() {
+      return firestore.get(/databases/(default)/documents/users/$(request.auth.uid)).data;
+    }
+
+    function roleLower(rec) {
+      return (rec.get('role', '') is string) ? rec.get('role', '').lower() : '';
+    }
+
+    function isSystemAdmin() {
+      return userDocExists() && (
+        roleLower(userDoc()) == 'admin' ||
+        userDoc().get('accountType', '') == 'ADMIN'
+      );
+    }
+
+    function isSystemTrainer() {
+      return userDocExists() && (
+        roleLower(userDoc()) == 'trainer' ||
+        userDoc().get('accountType', '') == 'TRAINER'
+      );
+    }
+
+    function isValidCertificateFile() {
+      return request.resource != null
+        && request.resource.size > 0
+        && request.resource.size <= 5 * 1024 * 1024
+        && request.resource.contentType != null
+        && request.resource.contentType.matches('application/pdf|image/jpeg|image/png');
+    }
+
+    match /trainers/{trainerId}/certificates/{fileName} {
+      // Read: Admin or owning Trainer only. Members have NO access.
+      allow read: if trainerId.matches('^[a-zA-Z0-9_\\-]+$')
+        && fileName.size() >= 1 && fileName.size() <= 200
+        && (isSystemAdmin() || (isSystemTrainer() && request.auth.uid == trainerId));
+
+      // Upload / Replace: Owning Trainer or Admin, strict 5 MB & PDF/JPG/PNG enforcement.
+      allow create, update: if trainerId.matches('^[a-zA-Z0-9_\\-]+$')
+        && fileName.size() >= 1 && fileName.size() <= 200
+        && (isSystemAdmin() || (isSystemTrainer() && request.auth.uid == trainerId))
+        && isValidCertificateFile();
+
+      // Delete: Admin (on profile deletion) or owning Trainer (cleanup on certificate replacement).
+      allow delete: if trainerId.matches('^[a-zA-Z0-9_\\-]+$')
+        && fileName.size() >= 1 && fileName.size() <= 200
+        && (isSystemAdmin() || (isSystemTrainer() && request.auth.uid == trainerId));
+    }
+
+    // Default deny everything else
+    match /{allPaths=**} {
+      allow read, write: if false;
+    }
+  }
+}

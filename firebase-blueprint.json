@@ -1,0 +1,407 @@
+{
+  "entities": {
+    "User": {
+      "title": "User",
+      "description": "User profile in Firestore for BodyGrind members and trainers",
+      "type": "object",
+      "properties": {
+        "userId": { "type": "string" },
+        "name": { "type": "string" },
+        "email": { "type": "string" },
+        "accountType": { "type": "string", "enum": ["MEMBER", "TRAINER"] },
+        "status": { "type": "string" },
+        "trainerInviteCode": { "type": "string" },
+        "trainerTitle": { "type": "string" },
+        "specialization": { "type": "string" },
+        "fitnessGoal": { "type": "string" },
+        "fitnessLevel": { "type": "string" },
+        "createdAt": { "type": "string", "format": "date-time" },
+        "updatedAt": { "type": "string", "format": "date-time" },
+        "lastActiveAt": { "type": "string", "format": "date-time" }
+      },
+      "required": ["userId", "accountType", "status"]
+    },
+    "AttendanceLog": {
+      "title": "AttendanceLog",
+      "description": "Daily attendance check-in record logged via QR code",
+      "type": "object",
+      "properties": {
+        "userId": { "type": "string" },
+        "userType": { "type": "string" },
+        "userName": { "type": "string" },
+        "checkInTime": { "type": "string", "format": "date-time" },
+        "method": { "type": "string" },
+        "status": { "type": "string" },
+        "dayKey": { "type": "string" },
+        "qrToken": { "type": "string" }
+      },
+      "required": ["userId", "userType", "method", "status", "dayKey", "qrToken"]
+    },
+    "TrainerInvite": {
+      "title": "TrainerInvite",
+      "description": "Invite code lookup record for connecting members to a trainer via QR or code entry",
+      "type": "object",
+      "properties": {
+        "trainerId": { "type": "string" },
+        "trainerName": { "type": "string" },
+        "trainerTitle": { "type": "string" },
+        "specialization": { "type": "string" },
+        "active": { "type": "boolean" },
+        "createdAt": { "type": "string", "format": "date-time" },
+        "updatedAt": { "type": "string", "format": "date-time" }
+      },
+      "required": ["trainerId", "trainerName", "active", "createdAt", "updatedAt"]
+    },
+    "TrainerMemberLink": {
+      "title": "TrainerMemberLink",
+      "description": "1-to-1 active or pending coaching link keyed by memberId with granular sharing toggles",
+      "type": "object",
+      "properties": {
+        "memberId": { "type": "string" },
+        "trainerId": { "type": "string" },
+        "memberName": { "type": "string" },
+        "trainerName": { "type": "string" },
+        "trainerTitle": { "type": "string" },
+        "inviteCode": { "type": "string" },
+        "status": { "type": "string", "enum": ["PENDING_CONFIRMATION", "ACTIVE"] },
+        "memberStatus": { "type": "string", "enum": ["ACTIVE", "NEEDS_ATTENTION", "PAUSED"] },
+        "requestedBy": { "type": "string", "enum": ["MEMBER", "TRAINER"] },
+        "shareWorkouts": { "type": "boolean" },
+        "shareStreakXp": { "type": "boolean" },
+        "shareBodyStats": { "type": "boolean" },
+        "agreedShareWorkouts": { "type": "boolean" },
+        "agreedShareStreakXp": { "type": "boolean" },
+        "agreedShareBodyStats": { "type": "boolean" },
+        "fitnessGoal": { "type": "string" },
+        "fitnessLevel": { "type": "string" },
+        "acceptedAt": { "type": "string", "format": "date-time" },
+        "lastActiveAt": { "type": "string", "format": "date-time" },
+        "createdAt": { "type": "string", "format": "date-time" },
+        "updatedAt": { "type": "string", "format": "date-time" }
+      },
+      "required": [
+        "memberId", "trainerId", "memberName", "trainerName", "status", "memberStatus",
+        "shareWorkouts", "shareStreakXp", "shareBodyStats",
+        "agreedShareWorkouts", "agreedShareStreakXp", "agreedShareBodyStats",
+        "createdAt", "updatedAt"
+      ]
+    },
+    "SharedWorkoutSummary": {
+      "title": "SharedWorkoutSummary",
+      "description": "Aggregated workout metrics shared by member when shareWorkouts is enabled",
+      "type": "object",
+      "properties": {
+        "memberId": { "type": "string" },
+        "totalWorkouts": { "type": "integer" },
+        "completedThisWeek": { "type": "integer" },
+        "totalCaloriesBurned": { "type": "integer" },
+        "totalMinutes": { "type": "integer" },
+        "updatedAt": { "type": "string", "format": "date-time" }
+      },
+      "required": ["memberId", "totalWorkouts", "completedThisWeek", "totalCaloriesBurned", "totalMinutes", "updatedAt"]
+    },
+    "SharedWorkoutSession": {
+      "title": "SharedWorkoutSession",
+      "description": "Individual workout session shared with linked trainer when shareWorkouts is enabled",
+      "type": "object",
+      "properties": {
+        "memberId": { "type": "string" },
+        "planName": { "type": "string" },
+        "category": { "type": "string" },
+        "completedAtMs": { "type": "integer" },
+        "durationMinutes": { "type": "integer" },
+        "caloriesBurned": { "type": "integer" },
+        "completed": { "type": "boolean" },
+        "updatedAt": { "type": "string", "format": "date-time" }
+      },
+      "required": ["memberId", "planName", "completedAtMs", "durationMinutes", "caloriesBurned", "completed", "updatedAt"]
+    },
+    "SharedStreakXp": {
+      "title": "SharedStreakXp",
+      "description": "Member streak, level, and XP shared when shareStreakXp is enabled",
+      "type": "object",
+      "properties": {
+        "memberId": { "type": "string" },
+        "streakDays": { "type": "integer" },
+        "level": { "type": "integer" },
+        "xpPoints": { "type": "integer" },
+        "fitnessGoal": { "type": "string" },
+        "fitnessLevel": { "type": "string" },
+        "updatedAt": { "type": "string", "format": "date-time" }
+      },
+      "required": ["memberId", "streakDays", "level", "xpPoints", "updatedAt"]
+    },
+    "SharedBodyStatsSummary": {
+      "title": "SharedBodyStatsSummary",
+      "description": "Latest BMI and body stats summary shared when shareBodyStats is enabled",
+      "type": "object",
+      "properties": {
+        "memberId": { "type": "string" },
+        "heightCm": { "type": "number" },
+        "weightKg": { "type": "number" },
+        "bmi": { "type": "number" },
+        "bmiCategory": { "type": "string" },
+        "chestCm": { "type": "number" },
+        "armCm": { "type": "number" },
+        "waistCm": { "type": "number" },
+        "updatedAt": { "type": "string", "format": "date-time" }
+      },
+      "required": ["memberId", "heightCm", "weightKg", "bmi", "bmiCategory", "updatedAt"]
+    },
+    "SharedMeasurement": {
+      "title": "SharedMeasurement",
+      "description": "Individual body measurement entry shared when shareBodyStats is enabled",
+      "type": "object",
+      "properties": {
+        "memberId": { "type": "string" },
+        "timestampMs": { "type": "integer" },
+        "weightKg": { "type": "number" },
+        "heightCm": { "type": "number" },
+        "bmi": { "type": "number" },
+        "bmiCategory": { "type": "string" },
+        "chestCm": { "type": "number" },
+        "armCm": { "type": "number" },
+        "waistCm": { "type": "number" },
+        "notes": { "type": "string" },
+        "updatedAt": { "type": "string", "format": "date-time" }
+      },
+      "required": ["memberId", "timestampMs", "weightKg", "heightCm", "bmi", "bmiCategory", "updatedAt"]
+    },
+    "ChatThread": {
+      "title": "ChatThread",
+      "description": "Direct messaging thread metadata per trainer-member pair",
+      "type": "object",
+      "properties": {
+        "trainerId": { "type": "string" },
+        "memberId": { "type": "string" },
+        "trainerName": { "type": "string" },
+        "memberName": { "type": "string" },
+        "lastMessage": { "type": "string" },
+        "lastSenderId": { "type": "string" },
+        "lastMessageAt": { "type": "string", "format": "date-time" },
+        "trainerUnreadCount": { "type": "integer" },
+        "memberUnreadCount": { "type": "integer" },
+        "createdAt": { "type": "string", "format": "date-time" },
+        "updatedAt": { "type": "string", "format": "date-time" }
+      },
+      "required": ["trainerId", "memberId", "trainerName", "memberName", "trainerUnreadCount", "memberUnreadCount", "createdAt", "updatedAt"]
+    },
+    "ChatMessage": {
+      "title": "ChatMessage",
+      "description": "Single text message inside a trainer-member chat thread",
+      "type": "object",
+      "properties": {
+        "trainerId": { "type": "string" },
+        "memberId": { "type": "string" },
+        "senderId": { "type": "string" },
+        "senderRole": { "type": "string", "enum": ["MEMBER", "TRAINER"] },
+        "senderName": { "type": "string" },
+        "text": { "type": "string" },
+        "createdAt": { "type": "string", "format": "date-time" }
+      },
+      "required": ["trainerId", "memberId", "senderId", "senderRole", "senderName", "text", "createdAt"]
+    },
+    "AssignedWorkoutPlan": {
+      "title": "AssignedWorkoutPlan",
+      "description": "Workout plan assigned by a linked trainer to a member",
+      "type": "object",
+      "properties": {
+        "trainerId": { "type": "string" },
+        "trainerName": { "type": "string" },
+        "memberId": { "type": "string" },
+        "planTitle": { "type": "string" },
+        "planDescription": { "type": "string" },
+        "category": { "type": "string" },
+        "difficulty": { "type": "string" },
+        "estimatedDurationMinutes": { "type": "integer" },
+        "note": { "type": "string" },
+        "startDateEpochMs": { "type": "integer" },
+        "exercises": { "type": "array" },
+        "completed": { "type": "boolean" },
+        "completedAt": { "type": "string", "format": "date-time" },
+        "createdAt": { "type": "string", "format": "date-time" },
+        "updatedAt": { "type": "string", "format": "date-time" }
+      },
+      "required": [
+        "trainerId", "trainerName", "memberId", "planTitle", "category", "difficulty",
+        "estimatedDurationMinutes", "startDateEpochMs", "exercises", "completed", "createdAt", "updatedAt"
+      ]
+    },
+    "TrainerProfile": {
+      "title": "TrainerProfile",
+      "description": "Professional trainer profile with contact info and certificate review status",
+      "type": "object",
+      "properties": {
+        "trainerId": { "type": "string" },
+        "name": { "type": "string" },
+        "email": { "type": "string" },
+        "phone": { "type": "string" },
+        "specialization": { "type": "string" },
+        "certificateUrl": { "type": "string" },
+        "certificateStoragePath": { "type": "string" },
+        "certificateFileName": { "type": "string" },
+        "certificateMimeType": { "type": "string", "enum": ["application/pdf", "image/jpeg", "image/png"] },
+        "certificateStatus": { "type": "string", "enum": ["pending", "approved", "rejected"] },
+        "certificateReviewedBy": { "type": "string" },
+        "certificateReviewedAt": { "type": "string", "format": "date-time" },
+        "createdAt": { "type": "string", "format": "date-time" },
+        "updatedAt": { "type": "string", "format": "date-time" }
+      },
+      "required": ["trainerId", "name", "email", "phone", "specialization", "certificateStatus", "createdAt", "updatedAt"]
+    },
+    "TrainerAvailability": {
+      "title": "TrainerAvailability",
+      "description": "Weekly recurring slots and date overrides for a trainer in Asia/Manila timezone",
+      "type": "object",
+      "properties": {
+        "trainerId": { "type": "string" },
+        "trainerName": { "type": "string" },
+        "timezone": { "type": "string", "enum": ["Asia/Manila"] },
+        "weeklySlots": { "type": "array" },
+        "dateOverrides": { "type": "array" },
+        "updatedByUid": { "type": "string" },
+        "updatedByRole": { "type": "string", "enum": ["trainer", "admin"] },
+        "updatedAt": { "type": "string", "format": "date-time" }
+      },
+      "required": ["trainerId", "timezone", "weeklySlots", "dateOverrides", "updatedByUid", "updatedByRole", "updatedAt"]
+    },
+    "ScheduledSession": {
+      "title": "ScheduledSession",
+      "description": "Trainer-member scheduled session with role-gated cancellation metadata and billing exclusion flags",
+      "type": "object",
+      "properties": {
+        "trainerId": { "type": "string" },
+        "trainerName": { "type": "string" },
+        "memberId": { "type": "string" },
+        "memberName": { "type": "string" },
+        "assignedPlanId": { "type": "string" },
+        "title": { "type": "string" },
+        "notes": { "type": "string" },
+        "scheduledDateUtcMs": { "type": "integer" },
+        "scheduledDateKey": { "type": "string" },
+        "startTime": { "type": "string" },
+        "endTime": { "type": "string" },
+        "status": { "type": "string", "enum": ["scheduled", "completed", "cancelled"] },
+        "excludeFromBilling": { "type": "boolean" },
+        "cancelledReason": { "type": "string" },
+        "cancelledByUid": { "type": "string" },
+        "cancelledByName": { "type": "string" },
+        "cancelledByRole": { "type": "string", "enum": ["trainer", "admin"] },
+        "cancelledAt": { "type": "string", "format": "date-time" },
+        "createdAt": { "type": "string", "format": "date-time" },
+        "updatedAt": { "type": "string", "format": "date-time" }
+      },
+      "required": ["trainerId", "memberId", "title", "scheduledDateKey", "status", "excludeFromBilling", "createdAt", "updatedAt"]
+    },
+    "CancellationNotification": {
+      "title": "CancellationNotification",
+      "description": "In-app cancellation alert for affected trainer and admins",
+      "type": "object",
+      "properties": {
+        "sessionId": { "type": "string" },
+        "assignedPlanId": { "type": "string" },
+        "sessionTitle": { "type": "string" },
+        "trainerId": { "type": "string" },
+        "trainerName": { "type": "string" },
+        "memberId": { "type": "string" },
+        "memberName": { "type": "string" },
+        "scheduledDateKey": { "type": "string" },
+        "reason": { "type": "string" },
+        "cancelledByUid": { "type": "string" },
+        "cancelledByName": { "type": "string" },
+        "cancelledByRole": { "type": "string", "enum": ["trainer", "admin"] },
+        "cancelledAt": { "type": "string", "format": "date-time" },
+        "notifyAdmins": { "type": "boolean" },
+        "readByUids": { "type": "array" }
+      },
+      "required": ["sessionTitle", "trainerId", "reason", "cancelledByUid", "cancelledByRole", "cancelledAt"]
+    },
+    "CancellationMail": {
+      "title": "CancellationMail",
+      "description": "Email queue document consumed by Firebase Trigger Email from Firestore extension",
+      "type": "object",
+      "properties": {
+        "to": { "type": "array" },
+        "message": { "type": "object" },
+        "type": { "type": "string", "enum": ["session_cancellation"] },
+        "trainerId": { "type": "string" },
+        "memberId": { "type": "string" },
+        "sessionId": { "type": "string" },
+        "cancelledByUid": { "type": "string" },
+        "cancelledAtManila": { "type": "string" },
+        "createdAt": { "type": "string", "format": "date-time" }
+      },
+      "required": ["to", "message", "type", "cancelledByUid", "createdAt"]
+    }
+  },
+  "firestore": {
+    "/users/{userId}": {
+      "schema": { "$ref": "#/entities/User" },
+      "description": "User account documents containing membership status and type"
+    },
+    "/attendanceLogs/{logId}": {
+      "schema": { "$ref": "#/entities/AttendanceLog" },
+      "description": "Daily attendance records keyed by dayKey_uid"
+    },
+    "/trainerInvites/{inviteCode}": {
+      "schema": { "$ref": "#/entities/TrainerInvite" },
+      "description": "Publicly-resolvable (auth required) invite codes pointing to a trainer"
+    },
+    "/links/{memberId}": {
+      "schema": { "$ref": "#/entities/TrainerMemberLink" },
+      "description": "Active or pending coaching link (one active trainer per member)"
+    },
+    "/users/{memberId}/sharedSummary/workouts": {
+      "schema": { "$ref": "#/entities/SharedWorkoutSummary" },
+      "description": "Shared workout aggregate gated by shareWorkouts"
+    },
+    "/users/{memberId}/sharedWorkouts/{sessionId}": {
+      "schema": { "$ref": "#/entities/SharedWorkoutSession" },
+      "description": "Shared workout session logs gated by shareWorkouts"
+    },
+    "/users/{memberId}/sharedSummary/streakXp": {
+      "schema": { "$ref": "#/entities/SharedStreakXp" },
+      "description": "Shared streak, level, and XP gated by shareStreakXp"
+    },
+    "/users/{memberId}/sharedSummary/bodyStats": {
+      "schema": { "$ref": "#/entities/SharedBodyStatsSummary" },
+      "description": "Shared latest BMI and measurements gated by shareBodyStats"
+    },
+    "/users/{memberId}/sharedMeasurements/{measurementId}": {
+      "schema": { "$ref": "#/entities/SharedMeasurement" },
+      "description": "Shared measurement history gated by shareBodyStats"
+    },
+    "/chats/{pairId}": {
+      "schema": { "$ref": "#/entities/ChatThread" },
+      "description": "Trainer-member messaging thread metadata"
+    },
+    "/chats/{pairId}/messages/{messageId}": {
+      "schema": { "$ref": "#/entities/ChatMessage" },
+      "description": "Messages inside a trainer-member chat thread"
+    },
+    "/users/{memberId}/assignedPlans/{assignmentId}": {
+      "schema": { "$ref": "#/entities/AssignedWorkoutPlan" },
+      "description": "Workout plans assigned by an actively linked trainer to a member"
+    },
+    "/trainers/{trainerId}": {
+      "schema": { "$ref": "#/entities/TrainerProfile" },
+      "description": "Dedicated collection for professional trainer profiles, contact details, and certification records"
+    },
+    "/trainerAvailability/{trainerId}": {
+      "schema": { "$ref": "#/entities/TrainerAvailability" },
+      "description": "Trainer weekly recurring availability slots and date overrides in Asia/Manila"
+    },
+    "/scheduledSessions/{sessionId}": {
+      "schema": { "$ref": "#/entities/ScheduledSession" },
+      "description": "Scheduled coaching sessions with status, cancellation metadata, and excludeFromBilling flag"
+    },
+    "/cancellationNotifications/{notifId}": {
+      "schema": { "$ref": "#/entities/CancellationNotification" },
+      "description": "In-app cancellation notifications visible to affected trainer and admins"
+    },
+    "/mail/{mailId}": {
+      "schema": { "$ref": "#/entities/CancellationMail" },
+      "description": "Email queue consumed by Firebase Trigger Email from Firestore extension"
+    }
+  }
+}

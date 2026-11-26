@@ -1,0 +1,8 @@
+{
+  "name": "Remix15 BodyGrind (Final Recommendations)",
+  "description": "A comprehensive, offline-capable home fitness tracker offering guided workouts, progress analytics, and personalized exercise plans using Kotlin.",
+  "requestFramePermissions": [],
+  "majorCapabilities": [
+    "MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"
+  ]
+}
